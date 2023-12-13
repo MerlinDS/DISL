@@ -10,7 +10,7 @@
   "license": "MIT",
   "documentationUrl": "https://github.com/MerlinDS/DISL/wiki",
   "changelogUrl": "https://github.com/MerlinDS/DISL/releases",
-  "licensesUrl": "https://github.com/MerlinDS/DISL/blob/main/LICENSE",
+  "licensesUrl": "https://github.com/MerlinDS/DISL/blob/master/LICENSE",
   "repository": {
     "url": "https://github.com/MerlinDS/DISL",
     "type": "git"
