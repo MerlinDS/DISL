@@ -2,6 +2,8 @@
 
 ### Minimal dependency injection + service locator library for <a href="https://unity.com/">Unity</a>.
 
+## Work in progress! 👷
+
 [comment]: <> (Finish description)
 
 ## 💾 Installation
