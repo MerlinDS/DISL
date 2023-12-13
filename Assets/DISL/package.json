@@ -1,0 +1,23 @@
+{
+  "name": "com.merlinds.disl",
+  "displayName": "DISL",
+  "version": "0.0.1",
+  "unity": "2022.3",
+  "type": "library",
+  "description": "Minimal dependency injection + service locator framework for Unity",
+  "keywords": ["Dependency Injection", "IoC", "DI", "DI Container"],
+  "category": "Dependency Injection",
+  "license": "MIT",
+  "documentationUrl": "https://github.com/MerlinDS/DISL/wiki",
+  "changelogUrl": "https://github.com/MerlinDS/DISL/releases",
+  "licensesUrl": "https://github.com/MerlinDS/DISL/blob/main/LICENSE",
+  "repository": {
+    "url": "https://github.com/MerlinDS/DISL",
+    "type": "git"
+  },
+  "author": {
+    "name": "MerlinDS",
+    "email": "andy.salomatin@gmail.com",
+    "url": "https://merlinds.github.io/merlinds/"
+  }
+}
