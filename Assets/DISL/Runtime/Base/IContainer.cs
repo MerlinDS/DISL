@@ -1,21 +1,17 @@
 ﻿using System;
-using DISL.Runtime.Bindings;
-using JetBrains.Annotations;
 
 namespace DISL.Runtime.Base
 {
-    public interface IContainer : IBindingContainer, IResolvingContainer, IDisposable
+    public interface IContainer : IConstructor, IDisposable
     {
-        /// <summary>
-        /// The name of the container.
-        /// </summary>
-        [CanBeNull]
         string Name { get; }
-
-        /// <summary>
-        /// The parent container.
-        /// </summary>
-        [CanBeNull]
-        IContainer Parent { get; }
+        T Resolve<T>();
+        
+        bool HasChild(string name);
+        IContainer this[string name] { get; }
+        
+        object Resolve(Type type);
+        internal void CreateChild(string name);
+        internal void AddBinding(Binding binding);
     }
 }

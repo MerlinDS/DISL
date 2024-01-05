@@ -9,10 +9,5 @@ namespace DISL.Runtime.Exceptions
             base($"Can't create instance of {type}", inner)
         {
         }
-
-        public DISLInvalidConstructionException(Type type, DISLBindingRegistrationException inner) :
-            base($"Can't resolve arguments for {type}", inner)
-        {
-        }
     }
 }

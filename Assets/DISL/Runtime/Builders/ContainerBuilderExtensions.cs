@@ -1,159 +1,184 @@
 ﻿using System;
+using System.Collections.Generic;
 using DISL.Runtime.Base;
-using DISL.Runtime.Exceptions;
-using DISL.Runtime.Reflections;
-using DISL.Runtime.Utils;
+using DISL.Runtime.Resolvers;
 
 namespace DISL.Runtime.Builders
 {
-    public static partial class ContainerBuilder
+    public static class ContainerBuilderExtensions
     {
-        /// <summary>
-        /// Sets the name of the container
-        /// </summary>
-        /// <param name="builder">The container builder</param>
-        /// <param name="name">The name to set</param>
-        /// <returns>The container builder with the name property set</returns>
-        public static IContainerBuilder WithName(this IContainerBuilder builder, string name) =>
-            builder.GetSkeleton().SetProperty(name);
-
-        /// <summary>
-        /// Configures the parent container for a given container.
-        /// </summary>
-        /// <param name="builder">The container builder.</param>
-        /// <param name="parent">The parent container.</param>
-        /// <returns>The container builder with the parent container configured.</returns>
-        public static IContainerBuilder WithParent(this IContainerBuilder builder, IContainer parent) =>
-            builder.GetSkeleton().SetProperty(parent);
-
-        /// <summary>
-        /// Adds a <see cref="ScriptingBackend"/> to the container builder and returns the modified container builder.
-        /// </summary>
-        /// <param name="builder">The container builder.</param>
-        /// <param name="scriptingBackend">The scripting backend to be added.</param>
-        /// <returns>The modified container builder.</returns>
-        public static IContainerBuilder For(this IContainerBuilder builder, ScriptingBackend scriptingBackend) =>
-            builder.GetSkeleton().SetProperty(scriptingBackend);
-
-        /// <summary>
-        /// Sets the <see cref="IActivatorFactoriesResolver"/> to the container builder and returns the modified container builder.
-        /// </summary>
-        /// <param name="builder">The container builder to modify.</param>
-        /// <param name="resolver">The activator factories resolver to set.</param>
-        /// <returns>The modified container builder.</returns>
-        public static IContainerBuilder With(this IContainerBuilder builder, IActivatorFactoriesResolver resolver) =>
-            builder.GetSkeleton().SetProperty(resolver);
-
-        /// <summary>
-        /// Sets a custom property to the container builder.
-        /// </summary>
-        /// <param name="builder">The container builder.</param>
-        /// <param name="value">The value to set.</param>
-        /// <typeparam name="T">The type of the property to set.</typeparam>
-        /// <returns>The updated container builder.</returns>
-        public static IContainerBuilder WithProperty<T>(this IContainerBuilder builder, T value) =>
-            builder.GetSkeleton().SetProperty(value);
-
-        /// <summary>
-        /// Retrieves the <see cref="ITypeConstructionInfoProvider"/> from the given <see cref="IContainerBuilder"/>.
-        /// </summary>
-        /// <param name="builder">The container builder from which to retrieve the provider.</param>
-        /// <returns>The <see cref="ITypeConstructionInfoProvider"/> if it is defined in the container builder.</returns>
-        /// <exception cref="DISLException">Thrown when the <see cref="ITypeConstructionInfoProvider"/> is not defined. Build the container first.</exception>
-        public static ITypeConstructionInfoProvider GetProvider(this IContainerBuilder builder)
+        internal static IContainerBuilder Create(string name)
         {
-            var property = builder.GetSkeleton().GetProperty<ITypeConstructionInfoProvider>();
-            if (property is not null)
-                return property;
-
-            throw new DISLException("TypeConstructionInfoProvider is not defined. Build container first.");
-        }
-
-        /// <summary>
-        /// Builds an instance of a bindings collection.
-        /// </summary>
-        /// <param name="builder">The container builder to build the collection from.</param>
-        /// <returns>The built instance of the bindings collection.</returns>
-        /// <exception cref="DISLException">
-        /// Thrown when the bindings collection is not defined. Build the container first.
-        /// </exception>
-        public static IBindingsCollection BuildCollection(this IContainerBuilder builder)
-        {
-            var property = builder.GetSkeleton().GetProperty<BindingsCollectionFactory>();
-            if (property is not null)
-                return property.Invoke();
-
-            throw new DISLException("BindingsCollection is not defined. Build container first.");
-        }
-
-        /// <summary>
-        /// Builds and returns an instance of IContainer using the specified IContainerBuilder.
-        /// </summary>
-        /// <param name="builder">The IContainerBuilder used to build the container.</param>
-        /// <returns>An instance of IContainer.</returns>
-        internal static IContainer Build(this IContainerBuilder builder)
-        {
-            var skeleton = builder.Prepare();
-            var type = skeleton.Type;
-
-            var info = skeleton.GetProvider().Get(type);
-            var arguments = skeleton.GetArguments(info.Parameters);
-            try
+            return new ContainerBuilderSkeleton
             {
-                return (IContainer)info.Activator.Invoke(arguments);
-            }
-            catch (Exception e)
+                Name = name,
+            };
+        }
+
+        /// <summary>
+        /// Get or create a child container builder
+        /// </summary>
+        /// <param name="builder">Builder</param>
+        /// <param name="name">Child name</param>
+        /// <returns></returns>
+        public static IContainerBuilder GetScope(this IContainerBuilder builder, string name)
+        {
+            var child = Create(name);
+            var skeleton = GetSkeleton(builder);
+            skeleton.Children.Add((IContainerBuilderSkeleton)child);
+            return child;
+        }
+
+        /// <summary>
+        /// Bind a type to the container
+        /// </summary>
+        /// <param name="builder">Builder</param>
+        /// <typeparam name="T"> Type to bind</typeparam>
+        /// <returns></returns>
+        public static IContainerBuilder Bind<T>(this IContainerBuilder builder) =>
+            new ContractBuilderSkeleton(builder, typeof(T));
+
+        /// <summary>
+        /// Bind a type to the container as a singleton
+        /// </summary>
+        /// <param name="builder">Builder</param>
+        /// <typeparam name="T"> Type to bind</typeparam>
+        /// <returns></returns>
+        /// <exception cref="ArgumentException"> If type is not concrete</exception>
+        public static IContainerBuilder AsSingleton<T>(this IContainerBuilder builder)
+        {
+            var concrete = typeof(T);
+            Validate(concrete);
+            var resolver = new SingletonTypeResolver(concrete);
+            return builder.AddBinding(resolver, concrete);
+        }
+
+        /// <summary>
+        /// Bind an instance to the container as a singleton
+        /// </summary>
+        /// <param name="builder">Builder</param>
+        /// <param name="instance">Instance to bind</param>
+        /// <typeparam name="T"> Type to bind</typeparam>
+        /// <returns></returns>
+        public static IContainerBuilder AsSingleton<T>(this IContainerBuilder builder, T instance)
+        {
+            var resolver = new SingletonValueResolver(instance);
+            return builder.AddBinding(resolver, instance.GetType(), typeof(T));
+        }
+        
+        /// <summary>
+        /// Bind a factory to the container as a singleton
+        /// </summary>
+        /// <param name="builder">Builder</param>
+        /// <param name="factory">Factory method to bind</param>
+        /// <typeparam name="T">Type to bind</typeparam>
+        /// <returns></returns>
+        public static IContainerBuilder AsSingleton<T>(this IContainerBuilder builder, Func<IContainer, T> factory)
+        {
+            var resolver = new SingletonFactoryResolver(container => factory.Invoke(container));
+            return builder.AddBinding(resolver, typeof(T));
+        }
+
+        /// <summary>
+        /// Bind a type to the container as a transient
+        /// </summary>
+        /// <param name="builder">Builder</param>
+        /// <typeparam name="T"> Type to bind</typeparam>
+        /// <returns></returns>
+        /// <exception cref="ArgumentException"> If type is not concrete</exception>
+        public static IContainerBuilder AsTransient<T>(this IContainerBuilder builder)
+        {
+            var concrete = typeof(T);
+            Validate(concrete);
+            return builder.AddBinding(new TransientTypeResolver(concrete), concrete);
+        }
+
+        /// <summary>
+        /// Bind a factory to the container as a transient
+        /// </summary>
+        /// <param name="builder">Builder</param>
+        /// <param name="factory">Factory method to bind</param>
+        /// <typeparam name="T">Type to bind</typeparam>
+        /// <returns></returns>
+        public static IContainerBuilder AsTransient<T>(this IContainerBuilder builder,
+            Func<IContainer, T> factory)
+        {
+            var resolver = new TransientFactoryResolver(container => factory.Invoke(container));
+            return builder.AddBinding(resolver, typeof(T));
+        }
+
+        private static void Validate(Type type)
+        {
+            if (type.IsAbstract || type.IsInterface)
+                throw new ArgumentException($"Type {type} is not concrete");
+        }
+
+        private static IContainerBuilder AddBinding(this IContainerBuilder builder, IResolver resolver,
+            Type concrete, params Type[] contracts)
+        {
+            var contractsList = new List<Type>(contracts);
+            if (contractsList.Count == 0)
+                contractsList.Add(concrete);
+
+            while (builder is ContractBuilderSkeleton { Builder: not null } contractBuilder)
             {
-                throw new DISLInvalidConstructionException(type, e);
+                contractsList.Add(contractBuilder.Contract);
+                builder = contractBuilder.Builder;
+            }
+
+            var skeleton = GetSkeleton(builder);
+            skeleton.Bindings.Add(Binding.Create(resolver, concrete, contractsList.ToArray()));
+            return builder;
+        }
+
+        internal static void Build(this IContainerBuilder builder, IContainer container)
+        {
+            var skeleton = GetSkeleton(builder);
+            BuildContainer(container, skeleton.Bindings);
+
+            foreach (var child in skeleton.Children)
+            {
+                if (!container.HasChild(child.Name))
+                    container.CreateChild(child.Name);
+
+                BuildContainer(container[child.Name], child.Bindings);
             }
         }
 
-        private static IContainerSkeleton Prepare(this IContainerBuilder skeleton) =>
-            skeleton.GetSkeleton().BuildBindingsCollectionFactory().BuildTypeConstructionInfoProvider();
-
-        private static IContainerSkeleton BuildBindingsCollectionFactory(this IContainerSkeleton skeleton)
+        private static void BuildContainer(IContainer container, IEnumerable<Binding> bindings)
         {
-            var collectionFactory = skeleton.GetProperty<BindingsCollectionFactory>();
-            if (collectionFactory is not null)
+            foreach (var binding in bindings)
+                container.AddBinding(binding);
+        }
+
+        private sealed class ContainerBuilderSkeleton : IContainerBuilderSkeleton
+        {
+            public string Name { get; set; }
+
+            public List<IContainerBuilderSkeleton> Children { get; } = new(1);
+
+            public List<Binding> Bindings { get; } = new();
+        }
+
+        private static IContainerBuilderSkeleton GetSkeleton(this IContainerBuilder builder)
+        {
+            if (builder is IContainerBuilderSkeleton skeleton)
                 return skeleton;
 
-            collectionFactory = () => new BindingsCollection();
-            skeleton = skeleton.With(collectionFactory).GetSkeleton();
-            return skeleton;
+            throw new ArgumentException("Container builder is not a skeleton");
         }
 
-        private static IContainerSkeleton BuildTypeConstructionInfoProvider(this IContainerSkeleton skeleton)
+        private readonly struct ContractBuilderSkeleton : IContainerBuilder
         {
-            if (skeleton.GetProperty<ITypeConstructionInfoProvider>() is not null)
-                return skeleton;
+            public IContainerBuilder Builder { get; }
 
-            var scriptingBackend = skeleton.GetProperty<ScriptingBackend>();
-            if (scriptingBackend == ScriptingBackend.Undefined)
+            public Type Contract { get; }
+
+            public ContractBuilderSkeleton(IContainerBuilder builder, Type contract)
             {
-                scriptingBackend = ScriptingBackendResolver.Resolve();
-                skeleton = skeleton.SetProperty(scriptingBackend);
+                Builder = builder;
+                Contract = contract;
             }
-
-            var resolver = skeleton.GetProperty<IActivatorFactoriesResolver>();
-            if (resolver is null)
-            {
-                resolver = ActivatorFactoriesResolver.Default();
-                skeleton = skeleton.With(resolver).GetSkeleton();
-            }
-
-            var factory = resolver.Resolve(scriptingBackend);
-            return skeleton.With(new TypeConstructionInfoProvider(factory)).GetSkeleton();
-        }
-
-        internal static IContainerBuilder Clone(this IContainerBuilder builder) =>
-            builder.GetSkeleton().Clone();
-
-        internal static IContainerBuilder With(this IContainerBuilder builder, BindingsCollectionFactory factory) =>
-            builder.GetSkeleton().SetProperty(factory);
-
-        private static IContainerBuilder With(this IContainerBuilder builder, ITypeConstructionInfoProvider provider)
-        {
-            return builder.GetSkeleton().SetProperty(provider);
         }
     }
 }

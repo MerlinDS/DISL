@@ -6,12 +6,12 @@ using DISL.Runtime.Utils;
 
 namespace DISL.Runtime.Builders
 {
-    internal sealed class ActivatorFactoriesResolver : IActivatorFactoriesResolver
+    internal sealed class ActivatorFactoriesResolver
     {
         private readonly Dictionary<ScriptingBackend, Type> _activatorFactories = new();
         private readonly Dictionary<ScriptingBackend, IActivatorFactory> _cachedActivatorFactories = new();
 
-        public static IActivatorFactoriesResolver Default()
+        public static ActivatorFactoriesResolver Default()
         {
             var resolver = new ActivatorFactoriesResolver();
             resolver.Add<IL2CPPActivatorFactory>(ScriptingBackend.IL2CPP);

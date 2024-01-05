@@ -1,80 +1,110 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using DISL.Runtime.Base;
-using DISL.Runtime.Bindings;
-using DISL.Runtime.Exceptions;
+using DISL.Runtime.Generics;
 using DISL.Runtime.Installers;
+using DISL.Runtime.Reflections;
+using DISL.Runtime.Resolvers;
+using DISL.Runtime.Utils;
 
 namespace DISL.Runtime.Builders
 {
-    public static partial class DISLBuilder
+    public sealed class DISLBuilder
     {
-        public static IDISLBuilder Create() =>
-            new BuilderSkeleton();
+        private readonly string _rootName;
+        private readonly List<Binding> _installers = new(1);
 
-        private static IDISLBuilderSkeleton GetSkeleton(this IDISLBuilder builder)
+        public static DISLBuilder Create(string rootName = null)
         {
-            if (builder is not IDISLBuilderSkeleton skeleton)
-                throw new DISLInvalidBuilderException(builder);
-            return skeleton;
+            if (string.IsNullOrEmpty(rootName))
+                rootName = "Root";
+            return new DISLBuilder(rootName);
         }
 
-        private sealed class BuilderSkeleton : IDISLBuilderSkeleton
+        private DISLBuilder(string rootName) =>
+            _rootName = rootName;
+
+        public DISLBuilder WithInstaller<T>() where T : IContainerInstaller
         {
-            /// <inheritdoc />
-            public IContainerBuilder RootContainerBuilder { get; set; }
+            AddInstallerBinding(typeof(T));
+            return this;
+        }
 
-            /// <inheritdoc />
-            public IList<object> Instances { get; } = new List<object>();
+        public DISLBuilder WithBindingInstaller<T>() where T : IBindingInstaller
+        {
+            AddInstallerBinding(typeof(T));
+            return this;
+        }
 
-            /// <inheritdoc />
-            public IList<Type> BuildingTypes { get; } = new List<Type>();
+        private void AddInstallerBinding(Type type) =>
+            _installers.Add(Binding.Create(new SingletonTypeResolver(type), type));
 
-            /// <inheritdoc />
-            public Queue<IBinder> Binders { get; } = new();
+        /// <summary>
+        /// Build container
+        /// </summary>
+        /// <returns></returns>
+        public IDisposable Build()
+        {
+            var scriptingBackend = ScriptingBackendDetector.Detect();
+            var activatorFactory = ActivatorFactoriesResolver.Default().Resolve(scriptingBackend);
+            var reflector = new Reflector(activatorFactory);
 
-            /// <inheritdoc />
-            public Queue<IInstaller> Installers { get; } = new();
+            var container = new Container(_rootName, reflector);
+            var (bindingInstallers, containerInstallers) =
+                ConstructInstallers(container);
 
-            /// <inheritdoc />
-            public Queue<IContainerConfigurator> Configurators { get; } = new();
+            ExecuteBindingBuilders(bindingInstallers, container);
+            var installers = ExecuteContainerInstallers(containerInstallers, container);
 
-            /// <inheritdoc />
-            public IDictionary<Type, IContainer> ChildContainers { get; } = new Dictionary<Type, IContainer>();
-            
-            /// <inheritdoc />
-            public DISLDisposables Disposables { get; private set; } = new();
+            var disposable = new DisposableCollection(installers);
+            disposable.TryAdd(container);
 
+            return disposable;
+        }
 
-            /// <inheritdoc />
-            public void Dispose()
+        private (Queue<IBindingInstaller>, Queue<IContainerInstaller>) ConstructInstallers(IContainer container)
+        {
+            var bindingInstallers = new Queue<IBindingInstaller>();
+            var containerInstallers = new Queue<IContainerInstaller>();
+            foreach (var installer in _installers.Select(binding => binding.Resolver.Resolve(container)))
             {
-                Disposables = null;
-                RootContainerBuilder = null;
-                
-                Instances.Clear();
-                BuildingTypes.Clear();
-                Binders.Clear();
-                Installers.Clear();
-                Configurators.Clear();
-                ChildContainers.Clear();
+                switch (installer)
+                {
+                    case IBindingInstaller bindingInstaller:
+                        bindingInstallers.Enqueue(bindingInstaller);
+                        break;
+                    case IContainerInstaller containerInstaller:
+                        containerInstallers.Enqueue(containerInstaller);
+                        break;
+                }
             }
 
-            /// <inheritdoc />
-            public IEnumerator<object> GetEnumerator()
-            {
-                foreach (var type in BuildingTypes)
-                    yield return Activator.CreateInstance(type); //TODO: Use ITypeConstructionInfoProvider
+            return (bindingInstallers, containerInstallers);
+        }
 
-                foreach (var instance in Instances)
-                    yield return instance;
+        private static void ExecuteBindingBuilders(
+            Queue<IBindingInstaller> bindingInstallers, IContainer container)
+        {
+            var containerBuilder = ContainerBuilderExtensions.Create(container.Name);
+            while (bindingInstallers.TryDequeue(out var bindingInstaller))
+            {
+                bindingInstaller.Install(containerBuilder);
+                if (bindingInstaller is IDisposable disposableInstaller)
+                    disposableInstaller.Dispose();
             }
 
-            /// <inheritdoc />
-            IEnumerator IEnumerable.GetEnumerator()
+            containerBuilder.Build(container);
+        }
+
+        private static IEnumerable<IDisposable> ExecuteContainerInstallers(
+            Queue<IContainerInstaller> containerInstallers, IContainer container)
+        {
+            while (containerInstallers.TryDequeue(out var containerInstaller))
             {
-                return GetEnumerator();
+                containerInstaller.Install(container);
+                if (containerInstaller is IDisposable disposableInstaller)
+                    yield return disposableInstaller;
             }
         }
     }
